@@ -6,72 +6,45 @@ class FindDoctor
   end
 
   def start_doctor_search
-    check_times(@patient.find_doctors)
+    check_location(@patient.find_doctors) ? true : 'No Doctors'
   end
 
   private
 
-  def check_times(doctors)
-    hash = {}
-    array = []
-    find_doc_time(doctors, array, hash)
+  def check_location(doctors)
+    local_docs = []
+    calc_distance(doctors)
+    find_availible(local_docs)
   end
 
-  def find_doc_time(doctors, array, hash)
-    doctors.each { |doc| check_avail_times(doc, hash, array) }
-    remove_booked_dates(hash)
-  end
-
-  def check_avail_times(doc, hash, array)
-    if !doc.available_times.nil?
-      append_app_times(doc, array)
-      hash[doc.id] = array
-    else
-      hash[doc.id] = doc.available_times
+  def calc_distance(doctors)
+    doctors.each do |doc|
+      check = Geocoder::Calculations.distance_between([doc.latitude, doc.longitude],
+                                                      [@patient.latitude, @patient.longitude])
+      (check <= 10) ? local_docs << doc : nil
     end
   end
 
-  def append_app_times(doc, array)
-    doc.available_times.each { |t| array << t.appointment_time }
+  def find_availible(doctors)
+    avail_doc = []
+    doctors.each { |doc| doc.avail(@appointment_time) ? avail_doc << doc : nil }
+    make_appointment(avail_doc)
   end
 
-  def remove_booked_dates(hash)
-    hash.each do |_k, v|
-      next unless v.present?
-      v.each do |date|
-        form = date.strftime('%m/%d/%Y')
-        (form == @appointment_time) ? v.delete(@appointment_time) : v.delete(v.last)
-      end
-    end
-    check_location(hash)
+  def make_appointment(doctors)
+    !doctors.empty? ? save_appointment(doctors) : false
   end
 
-  def check_location(hash)
-    hash2 = {}
-    hash.each do |k, _v|
-      d = Doctor.find(k)
-      check = Geocoder::Calculations.distance_between([d.latitude, d.longitude], [@patient.latitude, @patient.longitude])
-      (check <= 10) ? hash2[k] = check : nil
-    end
-    make_appointment(hash2.min)
-  end
-
-  def make_appointment(arr)
-    save_appointment(arr) unless arr.nil?
-    !d.nil?
-  end
-
-  def save_appointment(arr)
-    d = Doctor.find(arr.first)
+  def save_appointment(doctors)
+    doctor = doctors.sample
     date = Date.strptime(@appointment_time, '%m/%d/%y')
-    a = Appointment.new(patient_id: @patient.id, appointment_time: date)
-    d.appointments << a
-    send_mailer(d, date)
-    d.save
+    doctor.appointments << Appointment.new(patient_id: @patient.id, appointment_time: date)
+    send_mailer(doctor, date)
+    doctor.save
   end
 
-  def send_mailer(d, date)
-    DoctorMailer.appointment_email(d, date, @patient).deliver_now
-    PatientMailer.appointment_email(@patient, date, d).deliver_now
+  def send_mailer(doctor, date)
+    DoctorMailer.appointment_email(doctor, date, @patient).deliver_now
+    PatientMailer.appointment_email(@patient, date, doctor).deliver_now
   end
 end
